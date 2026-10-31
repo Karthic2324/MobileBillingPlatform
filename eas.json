@@ -9,11 +9,14 @@
     },
     "preview": {
       "distribution": "internal",
+      "withoutGit": true,
       "android": {
         "buildType": "apk"
       }
     },
-    "production": {}
+    "production": {
+      "withoutGit": true
+    }
   },
   "submit": {
     "production": {}
