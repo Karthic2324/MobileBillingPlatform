@@ -12,6 +12,8 @@ import {
   Alert,
 } from 'react-native';
 import { supabase } from '../config/supabase';
+import { signupClient } from '../config/supabaseAdminSignup';
+import { normalizePhone, isValidMobile, phoneToEmail } from '../utils/phone';
 import VendorManagementModal from '../components/VendorManagementModal';
 import VendorInvoicesModal from '../components/VendorInvoicesModal';
 
@@ -30,6 +32,12 @@ export default function AdminDashboardScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [newBusinessName, setNewBusinessName] = useState('');
   const [newPhone, setNewPhone] = useState('');
+  const [newAddress, setNewAddress] = useState('');
+  const [newGstin, setNewGstin] = useState('');
+  const [newInvoicePrefix, setNewInvoicePrefix] = useState('');
+  const [newBankName, setNewBankName] = useState('');
+  const [newAccountNo, setNewAccountNo] = useState('');
+  const [newIfsc, setNewIfsc] = useState('');
   const [creatingVendor, setCreatingVendor] = useState(false);
 
   // Analytics Metrics
@@ -100,38 +108,79 @@ export default function AdminDashboardScreen() {
   };
 
   const handleCreateVendorAccount = async () => {
-    if (!newEmail || !newPassword || !newBusinessName) {
-      Alert.alert('Validation Error', 'Please fill in Email, Password, and Business Name.');
+    if (!newBusinessName || !newPassword) {
+      Alert.alert('Validation Error', 'Please fill in Business Name, Mobile Number and Password.');
+      return;
+    }
+    if (!isValidMobile(newPhone)) {
+      Alert.alert('Validation Error', 'Please enter a valid 10-digit mobile number. The vendor logs in with it.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert('Validation Error', 'Password must be at least 6 characters.');
       return;
     }
 
     setCreatingVendor(true);
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: newEmail.trim(),
+      const phone = normalizePhone(newPhone);
+      // The vendor logs in with mobile number + password. Supabase needs an email internally,
+      // so we use <mobile>@multivendor.local (same rule as the login screen).
+      // A separate client is used so the Controller stays logged in.
+      const { data: authData, error: authError } = await signupClient.auth.signUp({
+        email: phoneToEmail(phone),
         password: newPassword,
+        options: { data: { business_name: newBusinessName, phone } },
       });
-
       if (authError) throw authError;
 
       const userId = authData?.user?.id;
-      if (userId) {
-        await supabase
+      if (!userId) throw new Error('Account was not created. This mobile number may already be registered.');
+
+      const details = {
+        business_name: newBusinessName,
+        phone,
+        address: newAddress,
+        gstin: newGstin,
+        invoice_prefix: newInvoicePrefix || null,
+        bank_name: newBankName,
+        account_no: newAccountNo,
+        ifsc_code: newIfsc,
+        role: 'VENDOR',
+        is_approved: true,
+      };
+
+      // The profile row is created by a database trigger, which can take a moment.
+      // Retry a few times and make sure a row was really updated (RLS can silently update 0 rows).
+      let saved = false;
+      for (let attempt = 0; attempt < 4 && !saved; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 700));
+        const { data: rows, error: profErr } = await supabase
           .from('profiles')
-          .update({
-            business_name: newBusinessName,
-            phone: newPhone,
-            role: 'VENDOR',
-            is_approved: true,
-          })
-          .eq('id', userId);
+          .update(details)
+          .eq('id', userId)
+          .select();
+        if (profErr) throw profErr;
+        saved = !!(rows && rows.length);
+      }
+      if (!saved) {
+        throw new Error(
+          'Vendor login was created, but the company details could not be saved. ' +
+          'Run the latest supabase_changes.sql (controller permissions), then open this vendor and press Edit to save the details.'
+        );
       }
 
-      Alert.alert('Success', 'New vendor account created and approved successfully!');
+      Alert.alert('Success', `Vendor created. They can log in with mobile ${phone} and the password you set.`);
       setNewEmail('');
       setNewPassword('');
       setNewBusinessName('');
       setNewPhone('');
+      setNewAddress('');
+      setNewGstin('');
+      setNewInvoicePrefix('');
+      setNewBankName('');
+      setNewAccountNo('');
+      setNewIfsc('');
       setAddVendorModalVisible(false);
       fetchAdminData();
     } catch (err) {
@@ -336,15 +385,14 @@ export default function AdminDashboardScreen() {
               onChangeText={setNewBusinessName}
             />
 
-            <Text style={styles.label}>Vendor Login Email *</Text>
+            <Text style={styles.label}>Vendor Mobile Number (login ID) *</Text>
             <TextInput
               style={styles.input}
-              placeholder="vendor@shop.com"
+              placeholder="9876543210"
               placeholderTextColor="#64748b"
-              value={newEmail}
-              onChangeText={setNewEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
+              value={newPhone}
+              onChangeText={setNewPhone}
+              keyboardType="phone-pad"
             />
 
             <Text style={styles.label}>Account Password *</Text>
@@ -357,14 +405,62 @@ export default function AdminDashboardScreen() {
               secureTextEntry
             />
 
-            <Text style={styles.label}>Contact Phone Number</Text>
+            <Text style={styles.label}>Company Address</Text>
             <TextInput
               style={styles.input}
-              placeholder="9876543210"
+              placeholder="Street, City, PIN"
               placeholderTextColor="#64748b"
-              value={newPhone}
-              onChangeText={setNewPhone}
-              keyboardType="phone-pad"
+              value={newAddress}
+              onChangeText={setNewAddress}
+            />
+
+            <Text style={styles.label}>GSTIN</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="33ABCDE1234F1Z5"
+              placeholderTextColor="#64748b"
+              value={newGstin}
+              onChangeText={setNewGstin}
+              autoCapitalize="characters"
+            />
+
+            <Text style={styles.label}>Invoice Number Prefix</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. OMA"
+              placeholderTextColor="#64748b"
+              value={newInvoicePrefix}
+              onChangeText={setNewInvoicePrefix}
+              autoCapitalize="characters"
+            />
+
+            <Text style={styles.label}>Bank Name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. ICICI Bank"
+              placeholderTextColor="#64748b"
+              value={newBankName}
+              onChangeText={setNewBankName}
+            />
+
+            <Text style={styles.label}>Bank Account Number</Text>
+            <TextInput
+              style={styles.input}
+              placeholder=""
+              placeholderTextColor="#64748b"
+              value={newAccountNo}
+              onChangeText={setNewAccountNo}
+              keyboardType="numeric"
+            />
+
+            <Text style={styles.label}>IFSC Code</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="ICIC0001234"
+              placeholderTextColor="#64748b"
+              value={newIfsc}
+              onChangeText={setNewIfsc}
+              autoCapitalize="characters"
             />
 
             <TouchableOpacity
@@ -382,6 +478,7 @@ export default function AdminDashboardScreen() {
 
       {/* Modal 2: Vendor Profile Settings Edit */}
       <VendorManagementModal
+        key={selectedVendor?.id || 'none'}
         visible={editModalVisible}
         vendor={selectedVendor}
         onClose={() => setEditModalVisible(false)}

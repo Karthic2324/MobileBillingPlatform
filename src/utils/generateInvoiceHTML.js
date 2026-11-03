@@ -1,3 +1,8 @@
+import { calcInvoice } from './tax';
+
+const esc = (v) =>
+  String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 export const generateInvoiceHTML = (invoiceData, vendorProfile = {}) => {
   const {
     invoiceNo,
@@ -5,19 +10,21 @@ export const generateInvoiceHTML = (invoiceData, vendorProfile = {}) => {
     customerName,
     address,
     phone,
+    shippingAddress,
     items = [],
+    receivedAmount = 0,
     bankDetails = {},
   } = invoiceData;
 
   const totalQty = items.reduce((sum, item) => sum + (parseFloat(item.qty) || 0), 0);
-  const subtotal = items.reduce((sum, item) => sum + ((parseFloat(item.qty) || 0) * (parseFloat(item.rate) || 0)), 0);
-  const cgst = subtotal * 0.09;
-  const sgst = subtotal * 0.09;
-  const grandTotal = subtotal + cgst + sgst;
+  const { taxable, tax, total, byRate } = calcInvoice(items);
+  const received = parseFloat(receivedAmount) || 0;
+  const balance = total - received;
+  const showTax = byRate.some((r) => r.rate > 0);
 
   const numberToWords = (num) => {
-    if (!num || num === 0) return 'Zero Rupees';
-    return `${grandTotal.toFixed(2)} Rupees Only`;
+    if (!num) return 'Zero Rupees';
+    return `${Math.round(num).toLocaleString('en-IN')} Rupees Only`;
   };
 
   return `
@@ -32,40 +39,43 @@ export const generateInvoiceHTML = (invoiceData, vendorProfile = {}) => {
       .sub-header { display: flex; justify-content: space-between; margin-top: 10px; border-bottom: 1px solid #ccc; padding-bottom: 10px; }
       .vendor-info { width: 55%; }
       .invoice-meta { width: 40%; text-align: right; }
-      .bill-to { border: 1px solid #000; padding: 8px; margin-top: 10px; width: 45%; }
+      .parties { display: flex; gap: 12px; margin-top: 10px; }
+      .box { border: 1px solid #000; padding: 8px; width: 45%; }
       table { width: 100%; border-collapse: collapse; margin-top: 15px; }
       th, td { border: 1px solid #aaa; padding: 6px; text-align: left; }
       th { background-color: #f0f0f0; }
       .right { text-align: right; }
-      .tax-table { margin-top: 15px; }
       .words-box { border: 1px solid #000; padding: 8px; margin-top: 15px; font-weight: bold; }
       .footer { margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
     </style>
   </head>
   <body>
     <div class="header">
-      <span class="title">TAX INVOICE</span>
+      <span class="title">${showTax ? 'TAX INVOICE' : 'INVOICE'}</span>
       <span>ORIGINAL FOR RECIPIENT</span>
     </div>
 
     <div class="sub-header">
       <div class="vendor-info">
-        <h3>${vendorProfile.business_name || 'My Business'}</h3>
-        <p>${vendorProfile.address || 'Business Address'}</p>
-        <p><strong>GSTIN:</strong> ${vendorProfile.gstin || 'N/A'}</p>
-        <p><strong>Contact:</strong> ${vendorProfile.phone || 'N/A'}</p>
+        <h3>${esc(vendorProfile.business_name || 'My Business')}</h3>
+        <p>${esc(vendorProfile.address || '')}</p>
+        ${vendorProfile.gstin ? `<p><strong>GSTIN:</strong> ${esc(vendorProfile.gstin)}</p>` : ''}
+        <p><strong>Contact:</strong> ${esc(vendorProfile.phone || 'N/A')}</p>
       </div>
       <div class="invoice-meta">
-        <p><strong>Invoice No. (Auto):</strong> ${invoiceNo}</p>
-        <p><strong>Invoice Date:</strong> ${invoiceDate}</p>
+        <p><strong>Invoice No.:</strong> ${esc(invoiceNo)}</p>
+        <p><strong>Invoice Date:</strong> ${esc(invoiceDate)}</p>
       </div>
     </div>
 
-    <div class="bill-to">
-      <strong>BILL TO</strong>
-      <p>${customerName || 'Customer Name'}</p>
-      <p>${address || 'Customer Address'}</p>
-      <p>${phone || 'Customer Phone'}</p>
+    <div class="parties">
+      <div class="box">
+        <strong>BILL TO</strong>
+        <p>${esc(customerName || 'Customer Name')}</p>
+        <p>${esc(address || '')}</p>
+        <p>${esc(phone || '')}</p>
+      </div>
+      ${shippingAddress ? `<div class="box"><strong>SHIP TO</strong><p>${esc(shippingAddress)}</p></div>` : ''}
     </div>
 
     <table>
@@ -74,6 +84,7 @@ export const generateInvoiceHTML = (invoiceData, vendorProfile = {}) => {
           <th>S.NO</th>
           <th>ITEMS</th>
           <th>HSN</th>
+          <th class="right">GST %</th>
           <th class="right">QTY</th>
           <th class="right">RATE</th>
           <th class="right">AMOUNT</th>
@@ -83,9 +94,10 @@ export const generateInvoiceHTML = (invoiceData, vendorProfile = {}) => {
         ${items.map((item, idx) => `
           <tr>
             <td>${idx + 1}</td>
-            <td>${item.description || 'Item Description'}</td>
-            <td>${item.hsn || '-'}</td>
-            <td class="right">${item.qty}</td>
+            <td>${esc(item.description || 'Item')}</td>
+            <td>${esc(item.hsn || '-')}</td>
+            <td class="right">${parseFloat(item.gst) || 0}%</td>
+            <td class="right">${esc(item.qty)}</td>
             <td class="right">${parseFloat(item.rate || 0).toFixed(2)}</td>
             <td class="right">${((parseFloat(item.qty) || 0) * (parseFloat(item.rate) || 0)).toFixed(2)}</td>
           </tr>
@@ -95,45 +107,55 @@ export const generateInvoiceHTML = (invoiceData, vendorProfile = {}) => {
 
     <div style="display: flex; justify-content: space-between; margin-top: 10px; font-weight: bold;">
       <span>TOTAL QTY: ${totalQty}</span>
-      <span>TOTAL: ₹${grandTotal.toFixed(2)}</span>
+      <span>TOTAL: ₹${total.toFixed(2)}</span>
     </div>
 
-    <table class="tax-table">
+    ${showTax ? `
+    <table>
       <thead>
         <tr>
-          <th>HSN/SAC</th>
+          <th>GST Rate</th>
           <th class="right">Taxable Value</th>
-          <th class="right">CGST (9%)</th>
-          <th class="right">SGST (9%)</th>
+          <th class="right">CGST</th>
+          <th class="right">SGST</th>
           <th class="right">Total Tax</th>
         </tr>
       </thead>
       <tbody>
+        ${byRate.filter((r) => r.rate > 0).map((r) => `
         <tr>
-          <td>N/A</td>
-          <td class="right">₹${subtotal.toFixed(2)}</td>
-          <td class="right">₹${cgst.toFixed(2)}</td>
-          <td class="right">₹${sgst.toFixed(2)}</td>
-          <td class="right">₹${(cgst + sgst).toFixed(2)}</td>
+          <td>${r.rate}% (CGST ${r.rate / 2}% + SGST ${r.rate / 2}%)</td>
+          <td class="right">₹${r.taxable.toFixed(2)}</td>
+          <td class="right">₹${(r.tax / 2).toFixed(2)}</td>
+          <td class="right">₹${(r.tax / 2).toFixed(2)}</td>
+          <td class="right">₹${r.tax.toFixed(2)}</td>
+        </tr>`).join('')}
+        <tr>
+          <th>Total</th>
+          <th class="right">₹${taxable.toFixed(2)}</th>
+          <th class="right">₹${(tax / 2).toFixed(2)}</th>
+          <th class="right">₹${(tax / 2).toFixed(2)}</th>
+          <th class="right">₹${tax.toFixed(2)}</th>
         </tr>
       </tbody>
-    </table>
+    </table>` : ''}
 
     <div class="words-box">
-      Total Amount (in words): ${numberToWords(grandTotal)}
+      Total Amount (in words): ${numberToWords(total)}<br/>
+      Received: ₹${received.toFixed(2)} &nbsp;|&nbsp; Balance: ₹${balance.toFixed(2)}
     </div>
 
     <div class="footer">
       <div>
         <strong>Bank Details</strong><br/>
-        Name: ${bankDetails.name || vendorProfile.business_name || 'N/A'}<br/>
-        IFSC Code: ${bankDetails.ifsc || 'N/A'}<br/>
-        Account No: ${bankDetails.accNo || 'N/A'}
+        Name: ${esc(bankDetails.name || vendorProfile.business_name || 'N/A')}<br/>
+        IFSC Code: ${esc(bankDetails.ifsc || 'N/A')}<br/>
+        Account No: ${esc(bankDetails.accNo || 'N/A')}
       </div>
       <div style="text-align: right;">
         <br/><br/>
         <strong>Authorised Signatory For</strong><br/>
-        ${vendorProfile.business_name || 'My Business'}
+        ${esc(vendorProfile.business_name || 'My Business')}
       </div>
     </div>
   </body>

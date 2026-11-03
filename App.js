@@ -9,8 +9,14 @@ import InvoiceWorkstation from './src/components/InvoiceWorkstation';
 import ProductCatalogScreen from './src/screens/ProductCatalogScreen';
 import InvoiceHistoryScreen from './src/screens/InvoiceHistoryScreen';
 import AdminDashboardScreen from './src/screens/AdminDashboardScreen';
+import ReportsScreen from './src/screens/ReportsScreen';
+import AccountScreen from './src/screens/AccountScreen';
 
 const Tab = createBottomTabNavigator();
+const TAB_ICONS = {
+  ControlPanel: '🛠️', GlobalLedger: '📚', AdminAccount: '👤',
+  Workstation: '🧾', Catalog: '📦', History: '📒', Reports: '📊', Account: '👤',
+};
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -93,7 +99,10 @@ export default function App() {
   return (
     <NavigationContainer>
       <Tab.Navigator
-        screenOptions={{
+        screenOptions={({ route }) => ({
+          tabBarIcon: ({ color }) => (
+            <Text style={{ fontSize: 18, color }}>{TAB_ICONS[route.name] || '•'}</Text>
+          ),
           headerStyle: { backgroundColor: '#1e293b' },
           headerTintColor: '#fff',
           headerRight: () => (
@@ -104,7 +113,7 @@ export default function App() {
           tabBarStyle: { backgroundColor: '#0f172a', borderColor: '#334155' },
           tabBarActiveTintColor: '#38bdf8',
           tabBarInactiveTintColor: '#94a3b8',
-        }}
+        })}
       >
         {isAdmin ? (
           /* ==================== CONTROLLER ADMIN INTERFACE ==================== */
@@ -119,6 +128,10 @@ export default function App() {
               options={{ title: 'All Vendor Invoices' }}
             >
               {() => <InvoiceHistoryScreen isAdmin={true} />}
+            </Tab.Screen>
+
+            <Tab.Screen name="AdminAccount" options={{ title: 'Account' }}>
+              {() => <AccountScreen vendorProfile={vendorProfile} />}
             </Tab.Screen>
           </>
         ) : (
@@ -142,6 +155,14 @@ export default function App() {
               options={{ title: 'Ledger' }}
             >
               {() => <InvoiceHistoryScreen vendorProfile={vendorProfile} />}
+            </Tab.Screen>
+
+            <Tab.Screen name="Reports" options={{ title: 'Reports' }}>
+              {() => <ReportsScreen vendorProfile={vendorProfile} />}
+            </Tab.Screen>
+
+            <Tab.Screen name="Account" options={{ title: 'Account' }}>
+              {() => <AccountScreen vendorProfile={vendorProfile} />}
             </Tab.Screen>
           </>
         )}

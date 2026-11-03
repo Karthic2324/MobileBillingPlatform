@@ -12,43 +12,72 @@ import {
   ScrollView,
 } from 'react-native';
 import { supabase } from '../config/supabase';
+import { normalizePhone, isValidMobile, phoneToEmail } from '../utils/phone';
 
 export default function AuthScreen({ onLoginSuccess }) {
-  const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
+  // Screen modes: 'LOGIN' | 'REGISTER' | 'FORGOT_SEND_OTP' | 'FORGOT_VERIFY_OTP'
+  const [mode, setMode] = useState('LOGIN');
+
+  // Input states
+  const [loginType, setLoginType] = useState('MOBILE'); // 'MOBILE' | 'EMAIL'
+  const [identifier, setIdentifier] = useState(''); // Holds Email or Phone
   const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [businessName, setBusinessName] = useState('');
-  const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
 
-const handleAuth = async () => {
-    if (!email || !password) {
-      Alert.alert('Validation Error', 'Please fill in both email and password.');
+  // Helper function: Helper to resolve Email vs Phone input
+  const isPhoneLogin = loginType === 'MOBILE';
+  const resolveTargetEmail = (inputVal) => {
+    if (isPhoneLogin) return phoneToEmail(inputVal);
+    return inputVal.trim();
+  };
+
+  // Helper function: Format raw phone for SMS OTP services
+  const getFormattedPhone = (inputVal) => {
+    return `+91${normalizePhone(inputVal)}`;
+  };
+
+  // Standard Login / Registration Handler
+  const handleAuth = async () => {
+    if (!identifier) {
+      Alert.alert('Validation Error', 'Please enter your email or 10-digit mobile number.');
+      return;
+    }
+    if (!password) {
+      Alert.alert('Validation Error', 'Please enter your password.');
       return;
     }
 
+    if (isPhoneLogin && !isValidMobile(identifier)) {
+      Alert.alert('Validation Error', 'Please enter a valid 10-digit mobile number.');
+      return;
+    }
+    const targetEmail = resolveTargetEmail(identifier);
+    const isPhone = isPhoneLogin;
     setLoading(true);
+
     try {
-      if (isLogin) {
+      if (mode === 'LOGIN') {
         // 1. Authenticate with Supabase Auth
         const { data: { user }, error } = await supabase.auth.signInWithPassword({
-          email,
+          email: targetEmail,
           password,
         });
+
         if (error) throw error;
 
         // 2. Fetch User Status via RPC (Bypasses RLS block)
-        const { data: statusData, error: rpcError } = await supabase
+        const { data: statusData, error: rpcErr } = await supabase
           .rpc('check_user_status', { user_id: user.id });
 
-        if (rpcError) throw rpcError;
+        if (rpcErr) throw rpcErr;
 
         const userStatus = statusData && statusData.length > 0 ? statusData[0] : null;
-
         const isAdmin = userStatus?.role === 'ADMIN';
         const isApproved = userStatus?.is_approved === true;
 
-        // 3. Block only non-approved vendors
         if (!isAdmin && !isApproved) {
           await supabase.auth.signOut();
           Alert.alert(
@@ -60,8 +89,7 @@ const handleAuth = async () => {
         }
 
         if (onLoginSuccess) onLoginSuccess();
-      } else {
-        // Registration Flow
+      } else if (mode === 'REGISTER') {
         if (!businessName) {
           Alert.alert('Validation Error', 'Please enter your business name.');
           setLoading(false);
@@ -69,12 +97,13 @@ const handleAuth = async () => {
         }
 
         const { error: signUpError } = await supabase.auth.signUp({
-          email,
+          email: targetEmail,
           password,
           options: {
             data: {
               business_name: businessName,
-              phone: phone,
+              phone: isPhone ? normalizePhone(identifier) : null,
+              email: !isPhone ? identifier.trim() : null,
             },
           },
         });
@@ -85,10 +114,89 @@ const handleAuth = async () => {
           'Registration Submitted',
           'Your account has been created! Please notify the Controller Admin to grant your access.'
         );
-        setIsLogin(true);
+        setMode('LOGIN');
       }
     } catch (err) {
       Alert.alert('Authentication Error', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 1 of Reset Password: Send Reset Link or OTP
+  const handleSendReset = async () => {
+    if (!identifier) {
+      Alert.alert('Validation Error', 'Please enter your email or 10-digit mobile number.');
+      return;
+    }
+
+    const isPhone = isPhoneLogin;
+    setLoading(true);
+
+    try {
+      if (isPhone) {
+        // Trigger SMS OTP for phone users
+        const formattedPhone = getFormattedPhone(identifier);
+        const { error } = await supabase.auth.signInWithOtp({
+          phone: formattedPhone,
+        });
+
+        if (error) throw error;
+
+        Alert.alert('OTP Sent', `A verification code has been sent via SMS to ${formattedPhone}.`);
+        setMode('FORGOT_VERIFY_OTP');
+      } else {
+        // Trigger Email Reset Link for standard email users
+        const { error } = await supabase.auth.resetPasswordForEmail(identifier.trim());
+
+        if (error) throw error;
+
+        Alert.alert('Reset Link Sent', `Password reset instructions have been sent to ${identifier}.`);
+        setMode('LOGIN');
+      }
+    } catch (err) {
+      Alert.alert('Reset Error', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 2 of Reset Password (Phone OTP verification flow)
+  const handleVerifyOtpAndResetPassword = async () => {
+    if (!otp || otp.length < 6) {
+      Alert.alert('Validation Error', 'Please enter the 6-digit OTP code.');
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      Alert.alert('Validation Error', 'New password must be at least 6 characters long.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const formattedPhone = getFormattedPhone(identifier);
+
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        phone: formattedPhone,
+        token: otp.trim(),
+        type: 'sms',
+      });
+
+      if (verifyError) throw verifyError;
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) throw updateError;
+
+      Alert.alert('Password Updated', 'Your password has been reset successfully! You can now log in.');
+      setPassword('');
+      setNewPassword('');
+      setOtp('');
+      setMode('LOGIN');
+    } catch (err) {
+      Alert.alert('Password Reset Failed', err.message);
     } finally {
       setLoading(false);
     }
@@ -101,16 +209,22 @@ const handleAuth = async () => {
     >
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.card}>
+
+          {/* TITLE & SUBTITLE */}
           <Text style={styles.title}>
-            {isLogin ? 'Vendor Login' : 'Vendor Registration'}
+            {mode === 'LOGIN' && 'Vendor Login'}
+            {mode === 'REGISTER' && 'Vendor Registration'}
+            {(mode === 'FORGOT_SEND_OTP' || mode === 'FORGOT_VERIFY_OTP') && '🔑 Reset Password'}
           </Text>
           <Text style={styles.subtitle}>
-            {isLogin
-              ? 'Access your invoice portal'
-              : 'Start generating multi-tenant invoices'}
+            {mode === 'LOGIN' && 'Access portal with your Email or Mobile Number'}
+            {mode === 'REGISTER' && 'Create your vendor account to start billing'}
+            {mode === 'FORGOT_SEND_OTP' && 'Enter your Email or Mobile Number to reset password'}
+            {mode === 'FORGOT_VERIFY_OTP' && `Enter the OTP sent to ${identifier} and set a new password`}
           </Text>
 
-          {!isLogin && (
+          {/* BUSINESS NAME (Register Only) */}
+          {mode === 'REGISTER' && (
             <>
               <Text style={styles.label}>Business Name *</Text>
               <TextInput
@@ -120,64 +234,153 @@ const handleAuth = async () => {
                 value={businessName}
                 onChangeText={setBusinessName}
               />
+            </>
+          )}
 
-              <Text style={styles.label}>Contact Phone</Text>
+          {/* EMAIL OR PHONE INPUT (Login / Register / Forgot Password) */}
+          {mode !== 'FORGOT_VERIFY_OTP' && (
+            <View style={styles.toggleRow}>
+              <TouchableOpacity
+                style={[styles.toggleBtn, loginType === 'MOBILE' && styles.toggleBtnActive]}
+                onPress={() => { setLoginType('MOBILE'); setIdentifier(''); }}
+              >
+                <Text style={[styles.toggleText, loginType === 'MOBILE' && styles.toggleTextActive]}>📱 Mobile Number</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.toggleBtn, loginType === 'EMAIL' && styles.toggleBtnActive]}
+                onPress={() => { setLoginType('EMAIL'); setIdentifier(''); }}
+              >
+                <Text style={[styles.toggleText, loginType === 'EMAIL' && styles.toggleTextActive]}>✉️ Email</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <Text style={styles.label}>{isPhoneLogin ? 'Mobile Number *' : 'Email Address *'}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder={isPhoneLogin ? 'e.g. 9876543210' : 'e.g. vendor@company.com'}
+            placeholderTextColor="#94a3b8"
+            keyboardType={isPhoneLogin ? 'phone-pad' : 'email-address'}
+            maxLength={isPhoneLogin ? 13 : undefined}
+            autoCapitalize="none"
+            value={identifier}
+            onChangeText={setIdentifier}
+            editable={mode !== 'FORGOT_VERIFY_OTP'}
+          />
+
+          {/* PASSWORD (Login & Register Only) */}
+          {(mode === 'LOGIN' || mode === 'REGISTER') && (
+            <>
+              <Text style={styles.label}>Password *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Mobile number"
+                placeholder="••••••••"
                 placeholderTextColor="#94a3b8"
-                keyboardType="phone-pad"
-                value={phone}
-                onChangeText={setPhone}
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
               />
             </>
           )}
 
-          <Text style={styles.label}>Email Address *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="vendor@company.com"
-            placeholderTextColor="#94a3b8"
-            autoCapitalize="none"
-            keyboardType="email-address"
-            value={email}
-            onChangeText={setEmail}
-          />
+          {/* OTP & NEW PASSWORD (FORGOT VERIFY OTP ONLY) */}
+          {mode === 'FORGOT_VERIFY_OTP' && (
+            <>
+              <Text style={styles.label}>SMS OTP Code *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="6-digit OTP code"
+                placeholderTextColor="#94a3b8"
+                keyboardType="number-pad"
+                value={otp}
+                onChangeText={setOtp}
+                maxLength={6}
+              />
 
-          <Text style={styles.label}>Password *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="••••••••"
-            placeholderTextColor="#94a3b8"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-          />
+              <Text style={styles.label}>New Password *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="At least 6 characters"
+                placeholderTextColor="#94a3b8"
+                secureTextEntry
+                value={newPassword}
+                onChangeText={setNewPassword}
+              />
+            </>
+          )}
 
-          <TouchableOpacity
-            style={styles.btn}
-            onPress={handleAuth}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.btnText}>
-                {isLogin ? 'Login to Portal' : 'Register Vendor Account'}
-              </Text>
+          {/* PRIMARY BUTTON */}
+          {(mode === 'LOGIN' || mode === 'REGISTER') && (
+            <TouchableOpacity
+              style={styles.btn}
+              onPress={handleAuth}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.btnText}>
+                  {mode === 'LOGIN' ? 'Login to Portal' : 'Register Vendor Account'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {mode === 'FORGOT_SEND_OTP' && (
+            <TouchableOpacity
+              style={styles.btn}
+              onPress={handleSendReset}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.btnText}>Send Reset Request</Text>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {mode === 'FORGOT_VERIFY_OTP' && (
+            <TouchableOpacity
+              style={styles.btn}
+              onPress={handleVerifyOtpAndResetPassword}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.btnText}>Verify OTP & Reset Password</Text>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* FOOTER LINKS */}
+          <View style={{ marginTop: 16, alignItems: 'center' }}>
+            {mode === 'LOGIN' && (
+              <>
+                <TouchableOpacity onPress={() => setMode('FORGOT_SEND_OTP')}>
+                  <Text style={styles.forgotText}>Forgot Password?</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={{ marginTop: 10 }} onPress={() => setMode('REGISTER')}>
+                  <Text style={styles.toggleText}>Don't have an account? Register</Text>
+                </TouchableOpacity>
+              </>
             )}
-          </TouchableOpacity>
 
-          <TouchableOpacity
-            style={{ marginTop: 16, alignItems: 'center' }}
-            onPress={() => setIsLogin(!isLogin)}
-          >
-            <Text style={styles.toggleText}>
-              {isLogin
-                ? "Don't have an account? Register"
-                : 'Already registered? Login'}
-            </Text>
-          </TouchableOpacity>
+            {mode === 'REGISTER' && (
+              <TouchableOpacity onPress={() => setMode('LOGIN')}>
+                <Text style={styles.toggleText}>Already registered? Login</Text>
+              </TouchableOpacity>
+            )}
+
+            {(mode === 'FORGOT_SEND_OTP' || mode === 'FORGOT_VERIFY_OTP') && (
+              <TouchableOpacity onPress={() => setMode('LOGIN')}>
+                <Text style={styles.toggleText}>Back to Login</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -185,6 +388,11 @@ const handleAuth = async () => {
 }
 
 const styles = StyleSheet.create({
+  toggleRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  toggleBtn: { flex: 1, paddingVertical: 8, borderRadius: 6, borderWidth: 1, borderColor: '#334155', alignItems: 'center' },
+  toggleBtnActive: { backgroundColor: '#0284c7', borderColor: '#0284c7' },
+  toggleText: { color: '#94a3b8', fontSize: 12, fontWeight: 'bold' },
+  toggleTextActive: { color: '#fff' },
   container: {
     flexGrow: 1,
     backgroundColor: '#0f172a',
@@ -241,6 +449,11 @@ const styles = StyleSheet.create({
   },
   toggleText: {
     color: '#38bdf8',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  forgotText: {
+    color: '#f59e0b',
     fontSize: 13,
     fontWeight: '500',
   },

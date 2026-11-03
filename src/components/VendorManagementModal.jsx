@@ -16,30 +16,42 @@ export default function VendorManagementModal({ visible, vendor, onClose, onRefr
 
   const [businessName, setBusinessName] = useState(vendor.business_name || '');
   const [phone, setPhone] = useState(vendor.phone || '');
+  const [address, setAddress] = useState(vendor.address || '');
   const [gstin, setGstin] = useState(vendor.gstin || '');
-  const [invoicePrefix, setInvoicePrefix] = useState(vendor.invoice_prefix || 'INV');
+  const [invoicePrefix, setInvoicePrefix] = useState(vendor.invoice_prefix || '');
+  const [invoiceStartNo, setInvoiceStartNo] = useState(String(vendor.invoice_start_no || 1001));
   const [bankName, setBankName] = useState(vendor.bank_name || '');
-  const [accountNumber, setAccountNumber] = useState(vendor.account_number || '');
+  const [accountNumber, setAccountNumber] = useState(vendor.account_no || vendor.account_number || '');
   const [ifscCode, setIfscCode] = useState(vendor.ifsc_code || '');
   const [updating, setUpdating] = useState(false);
 
   const handleUpdateVendorProfile = async () => {
     setUpdating(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
+      // Determine the correct identifier key (fallback from id to vendor_id if necessary)
+      const recordId = vendor.id || vendor.vendor_id;
+
+      const { data, error } = await supabase
+        .from('profiles') // Check if your table is 'profiles' or 'vendors'
         .update({
           business_name: businessName,
           phone: phone,
+          address: address,
           gstin: gstin,
           invoice_prefix: invoicePrefix,
+          invoice_start_no: parseInt(invoiceStartNo, 10) || 1001,
           bank_name: bankName,
-          account_number: accountNumber,
+          account_no: accountNumber,
           ifsc_code: ifscCode,
         })
-        .eq('id', vendor.id);
+        .eq('id', recordId)
+        .select(); // Returns updated rows to verify success
 
       if (error) throw error;
+
+      if (!data || data.length === 0) {
+        throw new Error('No record was updated. Please check your vendor ID configuration.');
+      }
 
       Alert.alert('Success', 'Vendor profile & invoice settings updated successfully!');
       if (onRefresh) onRefresh();
@@ -80,10 +92,18 @@ export default function VendorManagementModal({ visible, vendor, onClose, onRefr
               onChangeText={setPhone}
               keyboardType="phone-pad"
             />
+
+            <Text style={styles.label}>Company Address</Text>
+            <TextInput
+              style={[styles.input, { height: 70, textAlignVertical: 'top' }]}
+              value={address}
+              onChangeText={setAddress}
+              multiline
+            />
           </View>
 
           {/* Section 2: Invoice Configurations */}
-          <Text style={styles.sectionHeader}>🧾 Invoice & Tax Customization</Text>
+          <Text style={styles.sectionHeader}>📄 Invoice & Tax Customization</Text>
           <View style={styles.card}>
             <Text style={styles.label}>GSTIN</Text>
             <TextInput
@@ -99,6 +119,14 @@ export default function VendorManagementModal({ visible, vendor, onClose, onRefr
               value={invoicePrefix}
               onChangeText={setInvoicePrefix}
               autoCapitalize="characters"
+            />
+
+            <Text style={styles.label}>Invoice Starting Number (next invoice will not go below this)</Text>
+            <TextInput
+              style={styles.input}
+              value={invoiceStartNo}
+              onChangeText={setInvoiceStartNo}
+              keyboardType="numeric"
             />
           </View>
 

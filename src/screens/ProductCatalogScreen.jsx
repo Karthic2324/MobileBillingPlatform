@@ -18,6 +18,7 @@ export default function ProductCatalogScreen() {
   const [name, setName] = useState('');
   const [hsnCode, setHsnCode] = useState('');
   const [price, setPrice] = useState('');
+  const [gstPercent, setGstPercent] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -61,6 +62,7 @@ export default function ProductCatalogScreen() {
           name,
           hsn_code: hsnCode,
           price: parseFloat(price) || 0.00,
+          gst_percent: parseFloat(gstPercent) || 0,
         },
       ]);
 
@@ -71,6 +73,7 @@ export default function ProductCatalogScreen() {
       setName('');
       setHsnCode('');
       setPrice('');
+      setGstPercent('');
       fetchProducts();
     } catch (err) {
       Alert.alert('Error Adding Product', err.message);
@@ -127,6 +130,14 @@ export default function ProductCatalogScreen() {
             onChangeText={setPrice}
           />
         </View>
+        <TextInput
+          style={styles.input}
+          placeholder="GST % (e.g. 5, 12, 18, 28 - leave blank for 0)"
+          placeholderTextColor="#94a3b8"
+          keyboardType="numeric"
+          value={gstPercent}
+          onChangeText={setGstPercent}
+        />
 
         <TouchableOpacity style={styles.addBtn} onPress={handleAddProduct} disabled={submitting}>
           {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.addBtnText}>Save Product</Text>}
@@ -145,7 +156,7 @@ export default function ProductCatalogScreen() {
             <View style={styles.itemCard}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.itemTitle}>{item.name}</Text>
-                <Text style={styles.itemSub}>Code: {item.product_code} | HSN: {item.hsn_code || 'N/A'}</Text>
+                <Text style={styles.itemSub}>Code: {item.product_code} | HSN: {item.hsn_code || 'N/A'} | GST: {parseFloat(item.gst_percent || 0)}%</Text>
               </View>
               <Text style={styles.itemPrice}>₹{parseFloat(item.price).toFixed(2)}</Text>
               <TouchableOpacity onPress={() => handleDeleteProduct(item.id)} style={styles.deleteBtn}>
