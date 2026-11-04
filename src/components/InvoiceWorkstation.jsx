@@ -302,7 +302,7 @@ const handleSaveAndPDF = async () => {
   return (
     <ScrollView style={styles.container}>
       <View style={styles.topHeader}>
-        <Text style={styles.topHeaderTitle}>Invoice Workstation</Text>
+        <Text style={styles.topHeaderTitle}>Billing Page </Text>
         <TouchableOpacity style={styles.saveBtn} onPress={handleSaveAndPDF} disabled={isProcessing}>
           <Text style={styles.saveBtnText}>Save & Download PDF</Text>
         </TouchableOpacity>
@@ -396,12 +396,12 @@ const handleSaveAndPDF = async () => {
         {/* Line Items Table Header */}
         <View style={styles.tableHeader}>
           <Text style={[styles.th, { width: 25 }]}>#</Text>
-          <Text style={[styles.th, { flex: 2 }]}>ITEMS</Text>
+          <Text style={[styles.th, { flex: 2 }]}>Product Name</Text>
           <Text style={[styles.th, { width: 45 }]}>HSN</Text>
           <Text style={[styles.th, { width: 38 }]}>GST%</Text>
           <Text style={[styles.th, { width: 35 }]}>QTY</Text>
           <Text style={[styles.th, { flex: 1 }]}>RATE</Text>
-          <Text style={[styles.th, { width: 55, textAlign: 'right' }]}>AMOUNT</Text>
+          <Text style={[styles.th, { width: 55, textAlign: 'right' }]}>AMOUNT (incl gst %)</Text>
         </View>
 
         {items.map((item, index) => {
@@ -412,7 +412,7 @@ const handleSaveAndPDF = async () => {
               <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
                 <TextInput
                   style={[styles.tdInput, { flex: 1 }]}
-                  placeholder="Item Description"
+                  placeholder="Enter the product name"
                   placeholderTextColor="#94a3b8"
                   value={item.description}
                   onChangeText={(val) => handleUpdateItem(item.id, 'description', val)}
@@ -463,7 +463,7 @@ const handleSaveAndPDF = async () => {
 
         <View style={styles.rowBetweenSummary}>
           <Text style={styles.summaryBoldText}>TOTAL QTY: {totalQty}</Text>
-          <Text style={styles.summaryBoldText}>₹{totalAmount.toFixed(2)}</Text>
+          <Text style={styles.summaryBoldText}>Total Amount : ₹{totalAmount.toFixed(2)}</Text>
         </View>
         <View style={styles.divider} />
 
@@ -485,7 +485,7 @@ const handleSaveAndPDF = async () => {
             <Text style={[styles.taxTh, { flex: 1 }]}>Taxable Value</Text>
             <Text style={[styles.taxTh, { flex: 1 }]}>CGST</Text>
             <Text style={[styles.taxTh, { flex: 1 }]}>SGST</Text>
-            <Text style={[styles.taxTh, { width: 70, textAlign: 'right' }]}>Total Tax</Text>
+            <Text style={[styles.taxTh, { width: 70, textAlign: 'right' }]}>Total Tax Amount </Text>
           </View>
           {byRate.map((r) => (
             <View key={r.rate} style={styles.taxRow}>
@@ -542,7 +542,7 @@ const handleSaveAndPDF = async () => {
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Item (Catalog & History)</Text>
+            <Text style={styles.modalTitle}>Select Product From Catalog </Text>
             <TextInput
               style={styles.modalSearchInput}
               placeholder="Search product name or HSN..."

@@ -204,7 +204,7 @@ export default function AdminDashboardScreen() {
       {/* Header Banner */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Controller Control Panel</Text>
-        <Text style={styles.headerSub}>Platform-wide monitoring & vendor oversight</Text>
+        <Text style={styles.headerSub}>Manage All the vendors Profiles ....</Text>
       </View>
 
       {/* Segmented Control Tabs */}
@@ -232,7 +232,7 @@ export default function AdminDashboardScreen() {
           onPress={() => setActiveTab('ledger')}
         >
           <Text style={[styles.tabText, activeTab === 'ledger' && styles.activeTabText]}>
-            Global Ledger
+            All invoices History
           </Text>
         </TouchableOpacity>
       </View>
@@ -385,10 +385,10 @@ export default function AdminDashboardScreen() {
               onChangeText={setNewBusinessName}
             />
 
-            <Text style={styles.label}>Vendor Mobile Number (login ID) *</Text>
+            <Text style={styles.label}>User Mobile Number (login ID) *</Text>
             <TextInput
               style={styles.input}
-              placeholder="9876543210"
+              placeholder="Enter the Mobile Number"
               placeholderTextColor="#64748b"
               value={newPhone}
               onChangeText={setNewPhone}

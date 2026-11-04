@@ -101,14 +101,14 @@ export default function ProductCatalogScreen() {
         <Text style={styles.cardTitle}>Add New Product</Text>
         <TextInput
           style={styles.input}
-          placeholder="Product Code (e.g. 1001)"
+          placeholder="Enter the Product Code ...."
           placeholderTextColor="#94a3b8"
           value={productCode}
           onChangeText={setProductCode}
         />
         <TextInput
           style={styles.input}
-          placeholder="Item Name (e.g. LED Headlight Bulb)"
+          placeholder="Enter the Product Name..."
           placeholderTextColor="#94a3b8"
           value={name}
           onChangeText={setName}
@@ -132,7 +132,7 @@ export default function ProductCatalogScreen() {
         </View>
         <TextInput
           style={styles.input}
-          placeholder="GST % (e.g. 5, 12, 18, 28 - leave blank for 0)"
+          placeholder="Enter The GST of the Product (eg..5%, 10%)"
           placeholderTextColor="#94a3b8"
           keyboardType="numeric"
           value={gstPercent}
@@ -140,12 +140,12 @@ export default function ProductCatalogScreen() {
         />
 
         <TouchableOpacity style={styles.addBtn} onPress={handleAddProduct} disabled={submitting}>
-          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.addBtnText}>Save Product</Text>}
+          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.addBtnText}>Save Product To Catalog </Text>}
         </TouchableOpacity>
       </View>
 
       {/* Product List */}
-      <Text style={[styles.cardTitle, { marginTop: 16, marginBottom: 8 }]}>Catalog Inventory</Text>
+      <Text style={[styles.cardTitle, { marginTop: 16, marginBottom: 8 }]}> Added Products In the Catalog </Text>
       {loading ? (
         <ActivityIndicator size="large" color="#38bdf8" />
       ) : (

@@ -58,8 +58,8 @@ export default function AccountScreen({ vendorProfile = {}, onLogout }) {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>{vendorProfile.business_name || 'Vendor'}</Text>
-        <Text style={styles.sub}>Mobile: {vendorProfile.phone || 'N/A'}</Text>
-        <Text style={styles.sub}>Role: {vendorProfile.role || 'VENDOR'}</Text>
+        <Text style={styles.sub}>Mobile Number: {vendorProfile.phone || 'N/A'}</Text>
+        
       </View>
 
       <View style={styles.card}>

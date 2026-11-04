@@ -48,7 +48,7 @@ export default function VendorInvoiceScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0f172a' }}>
+    <View style={{ flex: 1, backgroundColor: '#2454c2' }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 12, backgroundColor: '#1e293b', alignItems: 'center' }}>
         <Text style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: 12 }}>
           Vendor: {vendorProfile?.business_name || 'My Shop'}

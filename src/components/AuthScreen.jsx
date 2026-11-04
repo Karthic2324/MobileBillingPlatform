@@ -212,12 +212,12 @@ export default function AuthScreen({ onLoginSuccess }) {
 
           {/* TITLE & SUBTITLE */}
           <Text style={styles.title}>
-            {mode === 'LOGIN' && 'Vendor Login'}
+            {mode === 'LOGIN' && 'Invoxa'}
             {mode === 'REGISTER' && 'Vendor Registration'}
             {(mode === 'FORGOT_SEND_OTP' || mode === 'FORGOT_VERIFY_OTP') && '🔑 Reset Password'}
           </Text>
           <Text style={styles.subtitle}>
-            {mode === 'LOGIN' && 'Access portal with your Email or Mobile Number'}
+            {mode === 'LOGIN' && 'Welcome Back ....!!!!'}
             {mode === 'REGISTER' && 'Create your vendor account to start billing'}
             {mode === 'FORGOT_SEND_OTP' && 'Enter your Email or Mobile Number to reset password'}
             {mode === 'FORGOT_VERIFY_OTP' && `Enter the OTP sent to ${identifier} and set a new password`}
@@ -258,7 +258,7 @@ export default function AuthScreen({ onLoginSuccess }) {
           <Text style={styles.label}>{isPhoneLogin ? 'Mobile Number *' : 'Email Address *'}</Text>
           <TextInput
             style={styles.input}
-            placeholder={isPhoneLogin ? 'e.g. 9876543210' : 'e.g. vendor@company.com'}
+            placeholder={isPhoneLogin ? 'Enter Your Mobile Number' : 'Enter your Email '}
             placeholderTextColor="#94a3b8"
             keyboardType={isPhoneLogin ? 'phone-pad' : 'email-address'}
             maxLength={isPhoneLogin ? 13 : undefined}
@@ -274,7 +274,7 @@ export default function AuthScreen({ onLoginSuccess }) {
               <Text style={styles.label}>Password *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="••••••••"
+                placeholder="Enter your password"
                 placeholderTextColor="#94a3b8"
                 secureTextEntry
                 value={password}
@@ -354,32 +354,7 @@ export default function AuthScreen({ onLoginSuccess }) {
             </TouchableOpacity>
           )}
 
-          {/* FOOTER LINKS */}
-          <View style={{ marginTop: 16, alignItems: 'center' }}>
-            {mode === 'LOGIN' && (
-              <>
-                <TouchableOpacity onPress={() => setMode('FORGOT_SEND_OTP')}>
-                  <Text style={styles.forgotText}>Forgot Password?</Text>
-                </TouchableOpacity>
 
-                <TouchableOpacity style={{ marginTop: 10 }} onPress={() => setMode('REGISTER')}>
-                  <Text style={styles.toggleText}>Don't have an account? Register</Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            {mode === 'REGISTER' && (
-              <TouchableOpacity onPress={() => setMode('LOGIN')}>
-                <Text style={styles.toggleText}>Already registered? Login</Text>
-              </TouchableOpacity>
-            )}
-
-            {(mode === 'FORGOT_SEND_OTP' || mode === 'FORGOT_VERIFY_OTP') && (
-              <TouchableOpacity onPress={() => setMode('LOGIN')}>
-                <Text style={styles.toggleText}>Back to Login</Text>
-              </TouchableOpacity>
-            )}
-          </View>
 
         </View>
       </ScrollView>

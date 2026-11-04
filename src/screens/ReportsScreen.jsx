@@ -78,7 +78,7 @@ export default function ReportsScreen({ vendorProfile = {} }) {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Revenue Report</Text>
+      <Text style={styles.title}>Sales Report</Text>
 
       {/* Quick totals for every period */}
       <View style={styles.grid}>
