@@ -1,4 +1,4 @@
-# Multi Vendor Billing (Invoify)
+# Multi Vendor Billing (Invoxa)
 
 A mobile billing and invoice app for Android, built with **React Native (Expo)** and **Supabase**. One **Controller** (admin) account manages many **Vendor** accounts. Each vendor creates GST invoices, keeps a product catalog, and sees their own sales reports, all from a phone.
 
