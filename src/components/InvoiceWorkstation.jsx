@@ -17,10 +17,16 @@ import * as Print from 'expo-print';
 import { supabase } from '../config/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { generateInvoiceHTML } from '../utils/generateInvoiceHTML';
-import { calcInvoice, formatDate } from '../utils/tax';
+import { calcInvoice, formatDate, toISODate, financialYearLabel } from '../utils/tax';
+import DatePickerField from './DatePickerField';
+import { savePdfToDevice } from '../utils/savePdfToDevice';
 
 export default function InvoiceWorkstation({ vendorProfile: vendorProfileProp = {} }) {
-  const [invoiceNo, setInvoiceNo] = useState('');
+  // Invoice date chosen on the calendar, kept as 'YYYY-MM-DD' (defaults to today).
+  const [invoiceDate, setInvoiceDate] = useState(toISODate(new Date()));
+  // Prefix + running number come from the database; the financial-year part follows the chosen date.
+  const [invBase, setInvBase] = useState(null);
+  const invoiceNo = invBase ? `${invBase.prefix}/${financialYearLabel(invoiceDate)}/${invBase.seq}` : '';
   // Live copy of the vendor profile so changes made by the Controller
   // (company name, address, phone, bank, invoice prefix...) show up immediately.
   const [vendorProfile, setVendorProfile] = useState(vendorProfileProp || {});
@@ -79,14 +85,13 @@ export default function InvoiceWorkstation({ vendorProfile: vendorProfileProp = 
         .toUpperCase()
         .slice(0, 3);
 
-      setInvoiceNo(`${prefix}/26-27/${nextSeq}`);
+      setInvBase({ prefix, seq: nextSeq });
     } catch (err) {
       console.log('Error generating unique invoice number:', err.message);
       // Fallback unique ID
-      setInvoiceNo(`INV/26-27/${Math.floor(1000 + Math.random() * 9000)}`);
+      setInvBase({ prefix: 'INV', seq: Math.floor(1000 + Math.random() * 9000) });
     }
   };
-  const [invoiceDate] = useState(formatDate(new Date()));
   const [customerName, setCustomerName] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
@@ -138,12 +143,26 @@ export default function InvoiceWorkstation({ vendorProfile: vendorProfileProp = 
   };
 
   const openSearchModal = (rowId) => {
+    fetchVendorCatalogAndHistory(); // pick up products added in the Catalog tab since this page loaded
     setActiveRowId(rowId);
     setSearchQuery('');
     setModalVisible(true);
   };
 
-  const handleSelectProduct = (product) => {
+  const nameOf = (p) => (p.item_name || p.name || p.description || '').trim();
+
+  // Catalog product with the same name (case-insensitive), if any
+  const findCatalogMatch = (name) => {
+    const key = (name || '').trim().toLowerCase();
+    if (!key) return null;
+    return catalog.find((c) => nameOf(c).toLowerCase() === key) || null;
+  };
+
+  const gstText = (v) => (v != null && parseFloat(v) > 0 ? String(parseFloat(v)) : '');
+
+  const handleSelectProduct = (picked) => {
+    // If the pick came from past invoices, still use the catalog's saved details for that name
+    const product = findCatalogMatch(nameOf(picked)) || picked;
     const itemName = product.item_name || product.name || product.description || '';
     const itemHsn = product.hsn_code || product.hsn || product.product_code || '';
     const itemPrice = String(product.unit_price || product.price || product.rate || '0.00');
@@ -156,9 +175,7 @@ export default function InvoiceWorkstation({ vendorProfile: vendorProfileProp = 
               description: itemName,
               hsn: itemHsn,
               rate: itemPrice,
-              gst: product.gst_percent != null && parseFloat(product.gst_percent) > 0
-                ? String(parseFloat(product.gst_percent))
-                : '',
+              gst: gstText(product.gst_percent),
             }
           : item
       )
@@ -184,9 +201,41 @@ export default function InvoiceWorkstation({ vendorProfile: vendorProfileProp = 
     ]);
   };
 
+  // Remove a product row. The last remaining row is cleared instead, so the invoice always has one row.
+  const removeItemNow = (id) => {
+    setItems((prev) =>
+      prev.length <= 1
+        ? [{ id: Date.now(), description: '', hsn: '', gst: '', qty: '1', rate: '0.00' }]
+        : prev.filter((item) => item.id !== id)
+    );
+  };
+
+  const handleRemoveItem = (item) => {
+    // Empty rows go straight away; rows with a product ask first to avoid accidental taps.
+    if (!item.description) return removeItemNow(item.id);
+    Alert.alert('Remove product', `Remove "${item.description}" from this invoice?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => removeItemNow(item.id) },
+    ]);
+  };
+
   const handleUpdateItem = (id, field, value) => {
-    setItems(
-      items.map((item) => (item.id === id ? { ...item, [field]: value } : item))
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, [field]: value };
+        if (field === 'description') {
+          // Typed name matches a catalog product -> fill only the fields still empty
+          const match = findCatalogMatch(value);
+          if (match) {
+            if (!updated.gst) updated.gst = gstText(match.gst_percent);
+            if (!updated.hsn) updated.hsn = match.hsn_code || match.hsn || '';
+            const price = parseFloat(match.price || match.unit_price || match.rate);
+            if (!(parseFloat(updated.rate) > 0) && price > 0) updated.rate = String(price);
+          }
+        }
+        return updated;
+      })
     );
   };
 
@@ -218,6 +267,7 @@ const handleSaveAndPDF = async () => {
       const invoicePayload = {
         vendor_id: vendorId,
         invoice_no: invoiceNo,
+        invoice_date: invoiceDate,
         customer_name: customerName || 'Walk-in Customer',
         customer_address: address || '',
         customer_phone: phone || '',
@@ -258,10 +308,10 @@ const handleSaveAndPDF = async () => {
       }
 
       // 3. Render HTML
-      setProcessingText('Opening printable PDF dialog...');
+      setProcessingText('Creating PDF...');
       const invoiceData = {
         invoiceNo,
-        invoiceDate,
+        invoiceDate: formatDate(invoiceDate), // PDF shows DD-MM-YYYY of the picked date
         customerName,
         address,
         phone,
@@ -273,12 +323,24 @@ const handleSaveAndPDF = async () => {
 
       const html = generateInvoiceHTML(invoiceData, vendorProfile);
 
-      // Dismiss loading modal BEFORE launching native OS print screen
-      setIsProcessing(false);
+      // 4. Build the PDF file and save it straight into the phone's storage
+      const { uri } = await Print.printToFileAsync({ html });
+      const safeNo = String(invoiceNo).replace(/[^a-zA-Z0-9]/g, '_');
+      const fileName = `${safeNo}_${formatDate(invoiceDate)}`;
 
-      // 4. Native OS Print / Save as PDF (NO Sharing API called!)
-// 4. Native OS Print / Save as PDF
-      await Print.printAsync({ html });
+      // Hide the loading overlay before Android may show the one-time folder picker
+      setIsProcessing(false);
+      try {
+        const result = await savePdfToDevice(uri, fileName);
+        if (result.saved && result.where === 'device') {
+          Alert.alert('PDF Saved', `${fileName}.pdf was saved to your phone storage.`);
+        } else if (!result.saved) {
+          Alert.alert('Invoice saved', 'The invoice is saved, but no folder was chosen so the PDF was not stored. Download it again from the Ledger.');
+        }
+      } catch (saveErr) {
+        // The invoice is already in the database, so do not let a storage problem cause a duplicate save.
+        Alert.alert('Invoice saved', 'The PDF could not be written to storage: ' + saveErr.message + '. Download it again from the Ledger.');
+      }
 
       // 5. AUTO-REFRESH & RESET FORM FOR NEW INVOICE
       setCustomerName('');
@@ -339,7 +401,7 @@ const handleSaveAndPDF = async () => {
             <Text style={styles.fieldLabel}>Invoice No. (Auto)</Text>
             <TextInput style={styles.readOnlyInput} value={invoiceNo} editable={false} />
             <Text style={[styles.fieldLabel, { marginTop: 6 }]}>Invoice Date</Text>
-            <TextInput style={styles.readOnlyInput} value={invoiceDate} editable={false} />
+            <DatePickerField value={invoiceDate} onChange={setInvoiceDate} />
           </View>
         </View>
         <View style={styles.divider} />
@@ -402,6 +464,7 @@ const handleSaveAndPDF = async () => {
           <Text style={[styles.th, { width: 35 }]}>QTY</Text>
           <Text style={[styles.th, { flex: 1 }]}>RATE</Text>
           <Text style={[styles.th, { width: 55, textAlign: 'right' }]}>AMOUNT (incl gst %)</Text>
+          <View style={{ width: 30 }} />
         </View>
 
         {items.map((item, index) => {
@@ -453,6 +516,9 @@ const handleSaveAndPDF = async () => {
                 onChangeText={(val) => handleUpdateItem(item.id, 'rate', val)}
               />
               <Text style={styles.amountText}>{itemAmount.toFixed(2)}</Text>
+              <TouchableOpacity onPress={() => handleRemoveItem(item)} style={styles.deleteBtn} hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}>
+                <Text style={styles.deleteBtnText}>🗑</Text>
+              </TouchableOpacity>
             </View>
           );
         })}
@@ -611,6 +677,8 @@ const styles = StyleSheet.create({
   tableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
   tdInput: { borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#fff', fontSize: 11, padding: 4, borderRadius: 3, marginHorizontal: 2, color: '#000' },
   searchBtn: { backgroundColor: '#0284c7', padding: 6, borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
+  deleteBtn: { width: 26, height: 26, marginLeft: 4, borderRadius: 4, backgroundColor: '#fee2e2', justifyContent: 'center', alignItems: 'center' },
+  deleteBtnText: { fontSize: 13 },
   amountText: { width: 55, textAlign: 'right', fontSize: 11, fontWeight: 'bold', color: '#000' },
   addItemBtn: { backgroundColor: '#334155', padding: 8, borderRadius: 6, alignItems: 'center', marginTop: 8 },
   addItemBtnText: { color: '#38bdf8', fontWeight: 'bold', fontSize: 12 },

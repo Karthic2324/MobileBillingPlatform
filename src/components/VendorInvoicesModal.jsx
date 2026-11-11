@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { supabase } from '../config/supabase';
+import { formatDate, getInvoiceDate } from '../utils/tax';
 
 export default function VendorInvoicesModal({ visible, vendor, onClose }) {
   const [invoices, setInvoices] = useState([]);
@@ -27,6 +28,7 @@ export default function VendorInvoicesModal({ visible, vendor, onClose }) {
         .from('invoices')
         .select('*')
         .eq('vendor_id', vendorId) // Filter strictly for this specific vendor
+        .order('invoice_date', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -89,7 +91,7 @@ export default function VendorInvoicesModal({ visible, vendor, onClose }) {
                 <Text style={styles.subText}>Customer: {item.customer_name}</Text>
                 <Text style={styles.subText}>Phone: {item.customer_phone || 'N/A'}</Text>
                 <Text style={styles.subText}>
-                  Date: {item.created_at ? item.created_at.split('T')[0] : 'N/A'}
+                  Date: {formatDate(getInvoiceDate(item))}
                 </Text>
               </View>
             )}

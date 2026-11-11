@@ -12,6 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { supabase } from '../config/supabase';
+import { formatDate, getInvoiceDate } from '../utils/tax';
 import { signupClient } from '../config/supabaseAdminSignup';
 import { normalizePhone, isValidMobile, phoneToEmail } from '../utils/phone';
 import VendorManagementModal from '../components/VendorManagementModal';
@@ -64,6 +65,7 @@ export default function AdminDashboardScreen() {
       const { data: invoices, error: invErr } = await supabase
         .from('invoices')
         .select('*')
+        .order('invoice_date', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false });
       if (invErr) throw invErr;
 
@@ -355,7 +357,7 @@ export default function AdminDashboardScreen() {
               </View>
               <Text style={styles.listSubText}>Customer: {item.customer_name}</Text>
               <Text style={styles.listSubText}>
-                Date: {item.created_at ? item.created_at.split('T')[0] : 'N/A'}
+                Date: {formatDate(getInvoiceDate(item))}
               </Text>
             </View>
           )}

@@ -3,13 +3,15 @@ import {
   Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator,
 } from 'react-native';
 import { supabase } from '../config/supabase';
-import { calcInvoice } from '../utils/tax';
+import { calcInvoice, getInvoiceDate } from '../utils/tax';
+import DatePickerField from './DatePickerField';
 
 const blankRow = () => ({ key: String(Date.now() + Math.random()), description: '', hsn: '', gst: '', qty: '1', rate: '0.00' });
 
 export default function InvoiceEditModal({ visible, invoice, onClose, onSaved }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [invoiceDate, setInvoiceDate] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
@@ -24,6 +26,7 @@ export default function InvoiceEditModal({ visible, invoice, onClose, onSaved })
   const load = async () => {
     setLoading(true);
     try {
+      setInvoiceDate(getInvoiceDate(invoice));
       setCustomerName(invoice.customer_name || '');
       setAddress(invoice.customer_address || '');
       setPhone(invoice.customer_phone || '');
@@ -73,6 +76,7 @@ export default function InvoiceEditModal({ visible, invoice, onClose, onSaved })
       const { error: invErr } = await supabase
         .from('invoices')
         .update({
+          invoice_date: invoiceDate,
           customer_name: customerName || 'Walk-in Customer',
           customer_address: address,
           customer_phone: phone,
@@ -131,6 +135,8 @@ export default function InvoiceEditModal({ visible, invoice, onClose, onSaved })
           <ActivityIndicator size="large" color="#38bdf8" style={{ marginTop: 40 }} />
         ) : (
           <ScrollView style={{ padding: 14 }}>
+            <Text style={styles.label}>Invoice Date</Text>
+            <DatePickerField dark value={invoiceDate} onChange={setInvoiceDate} />
             <Text style={styles.label}>Customer Name</Text>
             <TextInput style={styles.input} value={customerName} onChangeText={setCustomerName} />
             <Text style={styles.label}>Address</Text>

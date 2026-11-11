@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
-import { formatDate } from '../utils/tax';
+import { formatDate, toISODate, getInvoiceDate } from '../utils/tax';
 
 const startOfDay = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const startOfWeek = (d = new Date()) => {
@@ -13,13 +13,23 @@ const startOfWeek = (d = new Date()) => {
 };
 const startOfMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), 1);
 const startOfYear = (d = new Date()) => new Date(d.getFullYear(), 0, 1);
+const startOfLastYear = (d = new Date()) => new Date(d.getFullYear() - 1, 0, 1);
+const endOfLastYear = (d = new Date()) => new Date(d.getFullYear() - 1, 11, 31);
 
+// `to` is optional; periods without it run up to today.
 const PERIODS = [
   { key: 'day', label: 'Today', from: startOfDay },
   { key: 'week', label: 'This Week', from: startOfWeek },
   { key: 'month', label: 'This Month', from: startOfMonth },
   { key: 'year', label: 'This Year', from: startOfYear },
+  { key: 'lastyear', label: 'Last Year', from: startOfLastYear, to: endOfLastYear },
 ];
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// % change from `before` to `now`; null when there is nothing to compare with.
+const pctChange = (now, before) => (before > 0 ? ((now - before) / before) * 100 : null);
+const pctText = (p) => (p === null ? '—' : `${p >= 0 ? '▲' : '▼'} ${Math.abs(p).toFixed(1)}%`);
 
 const summarize = (list) => {
   let revenue = 0, tax = 0, received = 0;
@@ -41,12 +51,15 @@ export default function ReportsScreen({ vendorProfile = {} }) {
   const load = async () => {
     setLoading(true);
     try {
-      const earliest = new Date(Math.min(startOfYear().getTime(), startOfWeek().getTime()));
+      // Load from the start of LAST year so the year-on-year comparison has its data
+      const earliest = new Date(Math.min(startOfLastYear().getTime(), startOfWeek().getTime()));
       const { data, error } = await supabase
         .from('invoices')
         .select('*')
         .eq('vendor_id', vendorProfile.id)
-        .gte('created_at', earliest.toISOString())
+        // invoice_date is the billing date; rows without it (old data) fall back to created_at
+        .or(`invoice_date.gte.${toISODate(earliest)},and(invoice_date.is.null,created_at.gte.${earliest.toISOString()})`)
+        .order('invoice_date', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false });
       if (error) throw error;
       setInvoices(data || []);
@@ -63,7 +76,40 @@ export default function ReportsScreen({ vendorProfile = {} }) {
     }, [vendorProfile?.id])
   );
 
-  const inPeriod = (p) => invoices.filter((i) => new Date(i.created_at) >= p.from());
+  // Count an invoice by its billing date: from the period start up to today.
+  const inRange = (fromISO, toISOStr) =>
+    invoices.filter((i) => {
+      const d = getInvoiceDate(i);
+      return d >= fromISO && d <= toISOStr;
+    });
+  const inPeriod = (p) => {
+    const today = toISODate(new Date());
+    const to = p.to ? toISODate(p.to()) : today;
+    return inRange(toISODate(p.from()), to > today ? today : to);
+  };
+
+  // ---- Year-on-year comparison ----
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const lastYear = thisYear - 1;
+  const sThisYear = summarize(inPeriod(PERIODS.find((p) => p.key === 'year')));
+  const sLastYearFull = summarize(inPeriod(PERIODS.find((p) => p.key === 'lastyear')));
+  // Last year, but only up to today's date (fair comparison with the year so far)
+  const sLastYearSame = summarize(
+    inRange(toISODate(new Date(lastYear, 0, 1)), toISODate(new Date(lastYear, now.getMonth(), now.getDate())))
+  );
+  const growth = pctChange(sThisYear.revenue, sLastYearSame.revenue);
+
+  // Month-by-month totals for both years
+  const monthly = MONTH_NAMES.map((name, m) => {
+    const sum = (year) => {
+      const key = `${year}-${String(m + 1).padStart(2, '0')}`;
+      return summarize(inRange(`${key}-01`, `${key}-31`)).revenue;
+    };
+    const cur = sum(thisYear);
+    const prev = sum(lastYear);
+    return { name, cur, prev, change: pctChange(cur, prev) };
+  });
   const active = PERIODS.find((p) => p.key === selected);
   const activeList = inPeriod(active);
   const s = summarize(activeList);
@@ -108,6 +154,39 @@ export default function ReportsScreen({ vendorProfile = {} }) {
         <Row label="Invoices" value={String(s.count)} />
       </View>
 
+      {/* Year-on-year performance */}
+      <View style={styles.detail}>
+        <Text style={styles.detailTitle}>{thisYear} vs {lastYear} — Performance</Text>
+        <Row label={`${thisYear} sales (so far)`} value={inr(sThisYear.revenue)} big />
+        <Row label={`${lastYear} same period`} value={inr(sLastYearSame.revenue)} />
+        <Row label={`${lastYear} full year`} value={inr(sLastYearFull.revenue)} />
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Growth vs same period</Text>
+          <Text style={[styles.rowValue, { color: growth === null ? '#94a3b8' : growth >= 0 ? '#34d399' : '#f87171' }]}>
+            {pctText(growth)}
+          </Text>
+        </View>
+        <Row label={`${lastYear} invoices`} value={String(sLastYearFull.count)} />
+        <Row label={`${lastYear} GST collected`} value={inr(sLastYearFull.tax)} />
+
+        <View style={styles.monthHead}>
+          <Text style={[styles.mCell, { flex: 0.8 }]}>Month</Text>
+          <Text style={styles.mCell}>{lastYear}</Text>
+          <Text style={styles.mCell}>{thisYear}</Text>
+          <Text style={[styles.mCell, { flex: 0.9, textAlign: 'right' }]}>Change</Text>
+        </View>
+        {monthly.map((m) => (
+          <View key={m.name} style={styles.monthRow}>
+            <Text style={[styles.mCellTxt, { flex: 0.8, color: '#94a3b8' }]}>{m.name}</Text>
+            <Text style={styles.mCellTxt}>{inr(m.prev)}</Text>
+            <Text style={styles.mCellTxt}>{inr(m.cur)}</Text>
+            <Text style={[styles.mCellTxt, { flex: 0.9, textAlign: 'right', color: m.change === null ? '#64748b' : m.change >= 0 ? '#34d399' : '#f87171' }]}>
+              {pctText(m.change)}
+            </Text>
+          </View>
+        ))}
+      </View>
+
       <Text style={styles.listTitle}>Invoices in this period</Text>
       {activeList.length === 0 ? (
         <Text style={styles.empty}>No invoices in this period.</Text>
@@ -116,7 +195,7 @@ export default function ReportsScreen({ vendorProfile = {} }) {
           <View key={i.id} style={styles.invRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.invNo}>{i.invoice_no}</Text>
-              <Text style={styles.invSub}>{i.customer_name} • {formatDate(i.created_at)}</Text>
+              <Text style={styles.invSub}>{i.customer_name} • {formatDate(getInvoiceDate(i))}</Text>
             </View>
             <Text style={styles.invAmt}>{inr(parseFloat(i.total_amount) || 0)}</Text>
           </View>
@@ -158,5 +237,9 @@ const styles = StyleSheet.create({
   invNo: { color: '#38bdf8', fontWeight: 'bold', fontSize: 13 },
   invSub: { color: '#94a3b8', fontSize: 11 },
   invAmt: { color: '#34d399', fontWeight: 'bold' },
+  monthHead: { flexDirection: 'row', marginTop: 12, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#334155' },
+  monthRow: { flexDirection: 'row', paddingVertical: 5 },
+  mCell: { flex: 1.2, color: '#38bdf8', fontWeight: 'bold', fontSize: 11 },
+  mCellTxt: { flex: 1.2, color: '#f8fafc', fontSize: 11 },
   refresh: { backgroundColor: '#334155', padding: 10, borderRadius: 6, alignItems: 'center', marginTop: 12 },
 });

@@ -7,7 +7,7 @@ import * as Sharing from 'expo-sharing';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
 import { generateInvoiceHTML } from '../utils/generateInvoiceHTML';
-import { formatDate } from '../utils/tax';
+import { formatDate, getInvoiceDate } from '../utils/tax';
 import InvoiceEditModal from '../components/InvoiceEditModal';
 
 export default function InvoiceHistoryScreen({ vendorProfile = {}, isAdmin = false }) {
@@ -20,7 +20,9 @@ export default function InvoiceHistoryScreen({ vendorProfile = {}, isAdmin = fal
   const fetchInvoices = async () => {
     setLoading(true);
     try {
-      let q = supabase.from('invoices').select('*').order('created_at', { ascending: false });
+      let q = supabase.from('invoices').select('*')
+        .order('invoice_date', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false });
       // A vendor only ever sees their own invoices; the controller sees everything.
       if (!isAdmin && vendorProfile?.id) q = q.eq('vendor_id', vendorProfile.id);
       const { data, error } = await q;
@@ -83,7 +85,7 @@ export default function InvoiceHistoryScreen({ vendorProfile = {}, isAdmin = fal
       const html = generateInvoiceHTML(
         {
           invoiceNo: inv.invoice_no,
-          invoiceDate: formatDate(inv.created_at),
+          invoiceDate: formatDate(getInvoiceDate(inv)),
           customerName: inv.customer_name,
           address: inv.customer_address,
           phone: inv.customer_phone,
@@ -133,7 +135,7 @@ export default function InvoiceHistoryScreen({ vendorProfile = {}, isAdmin = fal
       </View>
       <Text style={styles.customerText}>Customer: {item.customer_name || 'Walk-in Customer'}</Text>
       <Text style={styles.dateText}>
-        Date: {formatDate(item.created_at)}
+        Date: {formatDate(getInvoiceDate(item))}
         {item.updated_at ? '  •  edited' : ''}
       </Text>
 
